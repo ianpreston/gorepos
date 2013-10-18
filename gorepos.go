@@ -30,6 +30,7 @@ import (
 
 func main() {
 	addr := flag.String("a", ":9090", "address to listen on (host:port)")
+	masqHost := flag.String("m", "", "pretend to be listening on (host)")
 	pkgFile := flag.String("p", "", "package list")
 	help := flag.Bool("help", false, "print usage")
 
@@ -44,7 +45,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	pl, err := NewPackageList(*pkgFile)
+	pl, err := NewPackageList(*pkgFile, *masqHost)
 	if err != nil {
 		log.Fatalln("Reading package list failed:", err)
 	}
@@ -60,10 +61,11 @@ type PackageList struct {
 	packages map[string]*Package
 	mx       sync.RWMutex
 	file     string
+	masqHost string
 }
 
-func NewPackageList(pkgFile string) (pl *PackageList, err error) {
-	pl = &PackageList{file: pkgFile}
+func NewPackageList(pkgFile string, masqHost string) (pl *PackageList, err error) {
+	pl = &PackageList{file: pkgFile, masqHost: masqHost}
 
 	err = pl.loadPackages()
 	if err != nil {
@@ -108,16 +110,22 @@ func (pl *PackageList) loadPackages() error {
 func (pl *PackageList) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	pl.mx.RLock()
 	defer pl.mx.RUnlock()
+
+	host := pl.masqHost
+	if host == "" {
+		host = r.Host
+	}
+
 	if r.URL.Path == "/" {
 		indexTmpl.Execute(w, map[string]interface{}{
-			"host": r.Host,
+			"host": host,
 			"pkgs": pl.packages,
 		})
 	} else {
 		if pkg, ok := pl.getPackage(r.URL.Path); ok {
 			if r.FormValue("go-get") == "1" || pkg.Doc == "" {
 				pkgTmpl.Execute(w, map[string]interface{}{
-					"host": r.Host,
+					"host": host,
 					"pkg":  pkg,
 				})
 			} else {
